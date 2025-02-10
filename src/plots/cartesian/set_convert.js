@@ -700,7 +700,7 @@ module.exports = function setConvert(ax, fullLayout) {
                             }
 
                             break;
-                        case '':
+                        default:
                             // N.B. should work on date axes as well!
                             // e.g. { bounds: ['2020-01-04', '2020-01-05 23:59'] }
                             // TODO should work with reversed-range axes
@@ -728,11 +728,18 @@ module.exports = function setConvert(ax, fullLayout) {
         var rangebreaksOut = [];
         if(!ax.rangebreaks) return rangebreaksOut;
 
-        var rangebreaksIn = ax.rangebreaks.slice().sort(function(a, b) {
-            if(a.pattern === WEEKDAY_PATTERN && b.pattern === HOUR_PATTERN) return -1;
-            if(b.pattern === WEEKDAY_PATTERN && a.pattern === HOUR_PATTERN) return 1;
-            return 0;
-        });
+        var rangebreaksIn;
+        if(ax.type === 'date') {
+            rangebreaksIn = ax.rangebreaks.slice().sort(function(a, b) {
+                if(a.pattern === WEEKDAY_PATTERN && b.pattern === HOUR_PATTERN) return -1;
+                if(b.pattern === WEEKDAY_PATTERN && a.pattern === HOUR_PATTERN) return 1;
+                return 0;
+            });
+        }
+        else
+        {
+             rangebreaksIn = ax.rangebreaks;
+        }
 
         var addBreak = function(min, max) {
             min = Lib.constrain(min, r0, r1);
