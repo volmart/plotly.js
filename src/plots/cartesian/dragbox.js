@@ -2,6 +2,45 @@
 
 var d3 = require('@plotly/d3');
 var Lib = require('../../lib');
+
+// A standard throttle function that returns a new function
+function throttle(func, wait) {
+    var context, args, result;
+    var timeout = null;
+    var previous = 0;
+    var later = function() {
+        previous = Date.now();
+        timeout = null;
+        result = func.apply(context, args);
+        if (!timeout) context = args = null;
+    };
+    var throttled = function() {
+        var now = Date.now();
+        if (!previous) previous = now;
+        var remaining = wait - (now - previous);
+        context = this;
+        args = arguments;
+        if (remaining <= 0 || remaining > wait) {
+            if (timeout) {
+                clearTimeout(timeout);
+                timeout = null;
+            }
+            previous = now;
+            result = func.apply(context, args);
+            if (!timeout) context = args = null;
+        } else if (!timeout) {
+            timeout = setTimeout(later, remaining);
+        }
+        return result;
+    };
+    throttled.cancel = function() {
+        clearTimeout(timeout);
+        previous = 0;
+        timeout = null;
+    };
+    return throttled;
+}
+
 var numberFormat = Lib.numberFormat;
 var tinycolor = require('tinycolor2');
 var supportsPassive = require('has-passive-events');
@@ -217,8 +256,22 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
 
                     zoomPrep(e, startX, startY);
                 } else if(dragModeNow === 'pan') {
-                    dragOptions.moveFn = plotDrag;
-                    dragOptions.doneFn = dragTail;
+                    var xLast = 0;
+                    var yLast = 0;
+
+                    var fn = throttle(function(dx, dy) {
+                        var dxIncrement = dx - xLast;
+                        var dyIncrement = dy - yLast;
+                        xLast = dx;
+                        yLast = dy;
+                        plotDrag(dxIncrement, dyIncrement);
+                    }, 20);
+
+                    dragOptions.moveFn = fn;
+                    dragOptions.doneFn = function(dx, dy) {
+                        fn.cancel();
+                        dragTail();
+                    };
                 }
             }
         }
@@ -496,10 +549,30 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
         function zoomWheelOneAxis(ax, centerFraction, zoom) {
             if(ax.fixedrange) return;
 
-            var axRange = Lib.simpleMap(ax.range, ax.r2l);
-            var v0 = axRange[0] + (axRange[1] - axRange[0]) * centerFraction;
-            function doZoom(v) { return ax.l2r(v0 + (v - v0) * zoom); }
-            ax.range = axRange.map(doZoom);
+            var rsOpts = ax.rangeslider;
+            if(rsOpts && rsOpts.visible) {
+                // For rangeslider, work in pixel space for zoom
+                // Get current pixel values - map from current range 
+                var v0 = rsOpts.d2p(ax.range[0]);
+                var v1 = rsOpts.d2p(ax.range[1]);
+
+                var pixelCenter = v0 + (v1 - v0) * centerFraction;
+ 
+                // Apply zoom around center point
+                var pixelMin = pixelCenter + (v0 - pixelCenter) * zoom;
+                var pixelMax = pixelCenter + (v1 - pixelCenter) * zoom;
+
+                rsOpts._pixelMin = Math.max(pixelMin, rsOpts.d2p(rsOpts._rl[0]));
+                rsOpts._pixelMax = Math.min(pixelMax, rsOpts.d2p(rsOpts._rl[1]));
+
+                var setDataRange = require('../../components/rangeslider/draw').setDataRange;
+                setDataRange(null, gd, ax, rsOpts);
+            } else {
+                var axRange = Lib.simpleMap(ax.range, ax.r2l);
+                var v0 = axRange[0] + (axRange[1] - axRange[0]) * centerFraction;
+                function doZoom(v) { return ax.l2r(v0 + (v - v0) * zoom); }
+                ax.range = axRange.map(doZoom);
+             }
         }
 
         if(editX) {
@@ -507,9 +580,20 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
             // zoom it about the center
             if(!ew) xfrac = 0.5;
 
+            var zoomIsDone = 0;
             for(i = 0; i < xaxes.length; i++) {
                 zoomWheelOneAxis(xaxes[i], xfrac, zoom);
+
+                var rangeslider = xaxes[i].rangeslider;
+                if (rangeslider && rangeslider.visible) {
+                    zoomIsDone = 1; // zoom executed by rangeslider logic, noting more to do
+                }
             }
+
+            if (zoomIsDone) {
+                return;
+            }
+
             updateMatchedAxRange('x');
 
             scrollViewBox[2] *= zoom;
@@ -563,6 +647,53 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
         gd._fullLayout._replotting = true;
 
         if(xActive === 'ew' || yActive === 'ns') {
+            var ax, pix;
+            if(xActive) {
+                ax = xaxes[0];
+                pix = dx;
+            } else {
+                ax = yaxes[0];
+                pix = dy;
+            }
+
+            var rsOpts = ax.rangeslider;
+            if(xActive && rsOpts && rsOpts.visible) {
+                 // Effective spans excluding rangebreaks
+                 function effectiveSpan(r0, r1) {
+                    var span = r1 - r0;
+                    if(ax.rangebreaks) {
+                        var brks = ax.locateBreaks(r0, r1);
+                        var removed =0;
+                        for(var i =0; i < brks.length; i++) removed += (brks[i].max - brks[i].min);
+                        span -= removed;
+                    }
+                    return Math.abs(span);
+                 }
+
+                 var visibleSpanEff = effectiveSpan(ax._rl[0], ax._rl[1]);
+                 var fullSpanEff = effectiveSpan(rsOpts._rl[0], rsOpts._rl[1]);
+
+                 // Convert axis pixel movement into slider pixel movement
+                 var sliderDelta = pix;
+
+                 // Adjust by current zoom factor so movement speed remains constant regardless of zoom.
+                 // When zoomed way in (visible span << full slider span) reduce motion proportionally.
+                 if(fullSpanEff && visibleSpanEff && fullSpanEff !== visibleSpanEff) {
+                    var zoomFactor = visibleSpanEff / fullSpanEff;
+                    sliderDelta *= zoomFactor;
+                 }
+
+                 rsOpts._pixelMin = rsOpts.d2p(ax._rl[0]) - sliderDelta;
+                 rsOpts._pixelMax = rsOpts.d2p(ax._rl[1]) - sliderDelta;
+
+                 //console.log('[rangeslider drag] pix:', pix.toFixed(2), 'sliderDelta:', sliderDelta.toFixed(2), 'visibleEff:', visibleSpanEff.toFixed(2), 'fullEff:', fullSpanEff.toFixed(2), 'ratio:');
+
+                 // Apply rangeslider drag behavior
+                 var setDataRange = require('../../components/rangeslider/draw').setDataRange;
+                 setDataRange(null, gd, ax, rsOpts);
+                 return;
+             }
+
             var spDx = xActive ? -dx : 0;
             var spDy = yActive ? -dy : 0;
 
@@ -1033,6 +1164,121 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
 
     function getShift(ax, scaleFactor, from) {
         return ax._length * (1 - scaleFactor) * FROM_TL[from || ax.constraintoward || 'middle'];
+    }
+
+    // Add touch pinch handling for x-axis zoom
+    var initialPinchDistance;
+    var initialXRange;
+    var lastPinchCenter;
+
+    function handlePinchStart(e) {
+        if (!editX || e.touches.length !== 2) return;
+
+        e.preventDefault();
+        var touch1 = e.touches[0];
+        var touch2 = e.touches[1];
+
+        initialPinchDistance = Math.hypot(
+            touch1.clientX - touch2.clientX,
+            touch1.clientY - touch2.clientY
+        );
+
+        lastPinchCenter = (touch1.clientX + touch2.clientX) / 2;
+
+        // Store initial ranges for the x axes
+        initialXRange = {};
+        for (var i = 0; i < xaxes.length; i++) {
+            var ax = xaxes[i];
+            if (!ax.fixedrange) {
+                initialXRange[ax._id] = ax.range.slice();
+            }
+        }
+    }
+
+    function handlePinchMove(e) {
+        if (!editX || e.touches.length !== 2 || !initialPinchDistance) return;
+
+        e.preventDefault();
+        var touch1 = e.touches[0];
+        var touch2 = e.touches[1];
+
+        var pinchDistance = Math.hypot(
+            touch1.clientX - touch2.clientX,
+            touch1.clientY - touch2.clientY
+        );
+
+        var pinchCenter = (touch1.clientX + touch2.clientX) / 2;
+        var centerShift = (pinchCenter - lastPinchCenter) / pw;
+        lastPinchCenter = pinchCenter;
+
+        // Calculate zoom factor from the pinch gesture
+        var zoomFactor = pinchDistance / initialPinchDistance;
+
+        // Update ranges for all x axes
+        for (var i = 0; i < xaxes.length; i++) {
+            var ax = xaxes[i];
+            if (ax.fixedrange || !initialXRange[ax._id]) continue;
+
+            // Check for rangeslider first, similar to plotDrag
+            var rsOpts = ax.rangeslider;
+            if (rsOpts && rsOpts.visible) {
+                // For rangeslider, work in pixel space for zoom
+                var v0 = rsOpts.d2p(ax.range[0]);
+                var v1 = rsOpts.d2p(ax.range[1]);
+
+                var pixelCenter = v0 + (v1 - v0) / 2; // Default to center for rangeslider
+        
+                // Apply zoom around center point
+                var pixelMin = pixelCenter + (v0 - pixelCenter) * zoomFactor;
+                var pixelMax = pixelCenter + (v1 - pixelCenter) * zoomFactor;
+
+                // Apply pan from pinch movement
+                var pixelShift = centerShift * (v1 - v0);
+                pixelMin -= pixelShift;
+                pixelMax -= pixelShift;
+ 
+                // Constrain to rangeslider bounds
+                rsOpts._pixelMin = Math.max(pixelMin, rsOpts.d2p(rsOpts._rl[0]));
+                rsOpts._pixelMax = Math.min(pixelMax, rsOpts.d2p(rsOpts._rl[1]));
+
+                // Use the same setDataRange approach as plotDrag
+                var setDataRange = require('../../components/rangeslider/draw').setDataRange;
+                setDataRange(null, gd, ax, rsOpts);
+            } else {
+                var initialRange = initialXRange[ax._id];
+                var rangeCenter = (ax._rl[0] + ax._rl[1]) / 2;
+
+                var newRange = [
+                    ax.l2r(rangeCenter + (ax.r2l(initialRange[0]) - rangeCenter) / zoomFactor - centerShift * (ax._rl[1] - ax._rl[0])),
+                    ax.l2r(rangeCenter + (ax.r2l(initialRange[1]) - rangeCenter) / zoomFactor - centerShift * (ax._rl[1] - ax._rl[0]))
+                ];
+                ax.range = newRange;
+            }
+
+            if (ax.limitRange) ax.limitRange();
+        }
+
+        ticksAndAnnotations();
+        gd.emit('plotly_relayouting', updates);
+    }
+
+    function handlePinchEnd(e) {
+        if (!editX || !initialPinchDistance) return;
+
+        e.preventDefault();
+        initialPinchDistance = null;
+        initialXRange = null;
+        lastPinchCenter = null;
+
+        dragTail();
+    }
+
+    // Add touch event listeners if editX is enabled
+    if (editX) {
+        dragger.addEventListener('touchstart', handlePinchStart, supportsPassive ? { passive: false } : false);
+        dragger.addEventListener('touchmove', handlePinchMove, supportsPassive ? { passive: false } : false);
+        dragger.addEventListener('touchend', handlePinchEnd, supportsPassive ? { passive: false } : false);
+        dragger.addEventListener('touchcancel', handlePinchEnd, supportsPassive ? { passive: false } : false);
     }
 
     return dragger;
