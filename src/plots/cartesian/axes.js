@@ -689,7 +689,30 @@ axes.prepTicks = function(ax, opts) {
             if(ax.tickmode === 'array') nt *= 100;
         }
 
-        ax._roughDTick = Math.abs(rng[1] - rng[0]) / nt;
+        var visibleLength = Math.abs(rng[1] - rng[0]);
+        if(ax.rangebreaks) {
+            var lBreaks = 0;
+            for(var i = 0; i < ax.rangebreaks.length; i++) {
+                var brk = ax.rangebreaks[i];
+                if(brk.enabled) {
+                    var v0 = ax.r2l(brk.bounds[0]);
+                    var v1 = ax.r2l(brk.bounds[1]);
+                    if(isNumeric(v0) && isNumeric(v1)) {
+                        var r0 = Math.min(rng[0], rng[1]);
+                        var r1 = Math.max(rng[0], rng[1]);
+                        var b0 = Math.min(v0, v1);
+                        var b1 = Math.max(v0, v1);
+                        var s0 = Math.max(r0, b0);
+                        var s1 = Math.min(r1, b1);
+                        if(s1 > s0) {
+                            lBreaks += s1 - s0;
+                        }
+                    }
+                }
+            }
+            visibleLength -= lBreaks;
+        }
+        ax._roughDTick = visibleLength / nt;
         axes.autoTicks(ax, ax._roughDTick);
 
         // check for a forced minimum dtick
