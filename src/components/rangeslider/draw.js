@@ -19,7 +19,7 @@ var setCursor = require('../../lib/setcursor');
 
 var constants = require('./constants');
 
-module.exports = function(gd) {
+var draw = module.exports = function(gd) {
     var fullLayout = gd._fullLayout;
     var rangeSliderData = fullLayout._rangeSliderData;
     for(var i = 0; i < rangeSliderData.length; i++) {
@@ -651,3 +651,5 @@ function drawGrabbers(rangeSlider, gd, axisOpts, opts) {
     });
     grabAreaMax.attr('height', opts._height);
 }
+
+draw.setDataRange = setDataRange;

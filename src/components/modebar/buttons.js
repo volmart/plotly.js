@@ -289,18 +289,35 @@ function handleCartesian(gd, ev) {
                         }
                     }
                 } else {
-                    var rangeNow = [
-                        ax.r2l(ax.range[0]),
-                        ax.r2l(ax.range[1]),
-                    ];
+                    var rsOpts = ax.rangeslider;
+                    if (rsOpts && rsOpts.visible) {
+                        // For rangeslider, work in pixel space for zoom
+                        var v0 = rsOpts.d2p(ax.range[0]);
+                        var v1 = rsOpts.d2p(ax.range[1]);
+                        var pixelCenter = v0 + (v1 - v0) / 2;
+                        var pixelMin = pixelCenter + (v0 - pixelCenter) * mag;
+                        var pixelMax = pixelCenter + (v1 - pixelCenter) * mag;
 
-                    var rangeNew = [
-                        r0 * rangeNow[0] + r1 * rangeNow[1],
-                        r0 * rangeNow[1] + r1 * rangeNow[0]
-                    ];
+                        rsOpts._pixelMin = Math.max(pixelMin, rsOpts.d2p(rsOpts._rl[0]));
+                        rsOpts._pixelMax = Math.min(pixelMax, rsOpts.d2p(rsOpts._rl[1]));
 
-                    aobj[axName + '.range[0]'] = ax.l2r(rangeNew[0]);
-                    aobj[axName + '.range[1]'] = ax.l2r(rangeNew[1]);
+                        // Trigger the rangeslider update
+                        var setDataRange = require('../../components/rangeslider/draw').setDataRange;
+                        setDataRange(null, gd, ax, rsOpts);
+                    } else {
+                        var rangeNow = [
+                            ax.r2l(ax.range[0]),
+                            ax.r2l(ax.range[1]),
+                        ];
+
+                        var rangeNew = [
+                            r0 * rangeNow[0] + r1 * rangeNow[1],
+                            r0 * rangeNow[1] + r1 * rangeNow[0]
+                        ];
+
+                        aobj[axName + '.range[0]'] = ax.l2r(rangeNew[0]);
+                        aobj[axName + '.range[1]'] = ax.l2r(rangeNew[1]);
+                    }
                 }
             }
         }
