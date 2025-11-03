@@ -19,6 +19,8 @@ var setCursor = require('../../lib/setcursor');
 
 var constants = require('./constants');
 
+var supportsPassive = require('has-passive-events');
+
 var draw = module.exports = function(gd) {
     var fullLayout = gd._fullLayout;
     var rangeSliderData = fullLayout._rangeSliderData;
@@ -251,10 +253,10 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
 
         var dragCover = dragElement.coverSlip();
 
-        this.addEventListener('touchmove', mouseMove);
-        this.addEventListener('touchend', mouseUp);
-        dragCover.addEventListener('mousemove', mouseMove);
-        dragCover.addEventListener('mouseup', mouseUp);
+        this.addEventListener('touchmove', mouseMove, supportsPassive ? {passive: true} : false);
+        this.addEventListener('touchend', mouseUp, supportsPassive ? {passive: true} : false);
+        dragCover.addEventListener('mousemove', mouseMove, supportsPassive ? {passive: true} : false);
+        dragCover.addEventListener('mouseup', mouseUp, supportsPassive ? {passive: true} : false);
 
         function mouseMove(e) {
             var clientX = eventX(e);
@@ -318,11 +320,11 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
         }
     }
 
-    rangeSlider.on('mousedown', mouseDownHandler);
-    rangeSlider.on('touchstart', mouseDownHandler);
+    rangeSlider.on('mousedown', mouseDownHandler, supportsPassive ? {passive: true} : {passive: false});
+    rangeSlider.on('touchstart', mouseDownHandler, supportsPassive ? {passive: true} : {passive: false});
 }
 
-function setDataRange(rangeSlider, gd, axisOpts, opts) {
+function setDataRange(rangeSlider, gd, axisOpts, opts, reqAnumationFrame = true) {
     function clamp(v) {
         return axisOpts.l2r(Lib.constrain(v, opts._rl[0], opts._rl[1]));
     }
@@ -330,9 +332,13 @@ function setDataRange(rangeSlider, gd, axisOpts, opts) {
     var dataMin = clamp(opts.p2d(opts._pixelMin));
     var dataMax = clamp(opts.p2d(opts._pixelMax));
 
-    window.requestAnimationFrame(function() {
+    if (reqAnumationFrame) {
+        window.requestAnimationFrame(function () {
+            Registry.call('_guiRelayout', gd, axisOpts._name + '.range', [dataMin, dataMax]);
+        });
+    } else {
         Registry.call('_guiRelayout', gd, axisOpts._name + '.range', [dataMin, dataMax]);
-    });
+    }
 }
 
 function setPixelRange(rangeSlider, gd, axisOpts, opts, oppAxisOpts, oppAxisRangeOpts) {

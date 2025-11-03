@@ -256,22 +256,29 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
 
                     zoomPrep(e, startX, startY);
                 } else if(dragModeNow === 'pan') {
-                    var xLast = 0;
-                    var yLast = 0;
 
-                    var fn = throttle(function(dx, dy) {
-                        var dxIncrement = dx - xLast;
-                        var dyIncrement = dy - yLast;
-                        xLast = dx;
-                        yLast = dy;
-                        plotDrag(dxIncrement, dyIncrement);
-                    }, 20);
+                    if (xaxes.length > 0 && xaxes[0].rangebreaks && xaxes[0].rangeslider) {
+                        var xLast = 0;
+                        var yLast = 0;
 
-                    dragOptions.moveFn = fn;
-                    dragOptions.doneFn = function(dx, dy) {
-                        fn.cancel();
-                        dragTail();
-                    };
+                        var fn = throttle(function(dx, dy) {
+                            var dxIncrement = dx - xLast;
+                            var dyIncrement = dy - yLast;
+                            xLast = dx;
+                            yLast = dy;
+                            plotDrag(dxIncrement, dyIncrement);
+                        }, 20);
+
+                        dragOptions.moveFn = fn;
+                        dragOptions.doneFn = function(dx, dy) {
+                            fn.cancel();
+                            dragTail();
+                        };
+                    }
+                    else {
+                        dragOptions.moveFn = plotDrag;
+                        dragOptions.doneFn = dragTail;
+                    }
                 }
             }
         }
@@ -299,6 +306,11 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
     }
 
     function clickFn(numClicks, evt) {
+        if(dragger._skipNextClick) {
+            delete dragger._skipNextClick;
+            return;
+        }
+
         var gd = dragOptions.gd;
         if(gd._fullLayout._activeShapeIndex >= 0) {
             gd._fullLayout._deactivateShape(gd);
@@ -550,7 +562,7 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
             if(ax.fixedrange) return;
 
             var rsOpts = ax.rangeslider;
-            if(rsOpts && rsOpts.visible) {
+            if(rsOpts && rsOpts.visible && ax.rangebreaks) {
                 // For rangeslider, work in pixel space for zoom
                 // Get current pixel values - map from current range 
                 var v0 = rsOpts.d2p(ax.range[0]);
@@ -585,7 +597,7 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
                 zoomWheelOneAxis(xaxes[i], xfrac, zoom);
 
                 var rangeslider = xaxes[i].rangeslider;
-                if (rangeslider && rangeslider.visible) {
+                if (rangeslider && rangeslider.visible && xaxes[i].rangebreaks) {
                     zoomIsDone = 1; // zoom executed by rangeslider logic, noting more to do
                 }
             }
@@ -657,7 +669,7 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
             }
 
             var rsOpts = ax.rangeslider;
-            if(xActive && rsOpts && rsOpts.visible) {
+            if(xActive && rsOpts && rsOpts.visible && ax.rangebreaks) {
                  // Effective spans excluding rangebreaks
                  function effectiveSpan(r0, r1) {
                     var span = r1 - r0;
@@ -1166,6 +1178,175 @@ function makeDragBox(gd, plotinfo, x, y, w, h, ns, ew) {
         return ax._length * (1 - scaleFactor) * FROM_TL[from || ax.constraintoward || 'middle'];
     }
 
+    // Add touch pinch handling for x-axis zoom
+    var pinchState = {
+        active: false,
+        initialPinchDistance: null,
+        initialPinchCenter: null,
+        lastPinchDistance: null,
+        lastPinchCenter: null,
+        initialXRange: {},
+        animationFrameId: null
+    };
+
+    function handlePinchStart(e) {
+        if(!editX || e.touches.length !== 2) return;
+
+        recomputeAxisLists();
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var touch1 = e.touches[0];
+        var touch2 = e.touches[1];
+
+        pinchState.active = true;
+        pinchState.initialPinchDistance = Math.hypot(
+            touch1.clientX - touch2.clientX,
+            touch1.clientY - touch2.clientY
+        );
+        pinchState.lastPinchDistance = pinchState.initialPinchDistance;
+
+        pinchState.initialPinchCenter = (touch1.clientX + touch2.clientX) / 2;
+        pinchState.lastPinchCenter = pinchState.initialPinchCenter;
+
+        pinchState.initialXRange = {};
+        for(var i = 0; i < xaxes.length; i++) {
+            var ax = xaxes[i];
+            if(!ax.fixedrange) {
+                console.log(`[Pinch] ${new Date(Date.now()).toISOString()} handlePinchStart ${ax.range[0]} - ${ax.range[1]}`);
+                pinchState.initialXRange[ax._id] = ax.range.slice();
+            }
+        }
+
+        clearTimeout(redrawTimer);
+    }
+
+    function handlePinchMove(e) {
+        if(!pinchState.active || e.touches.length !== 2) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var touch1 = e.touches[0];
+        var touch2 = e.touches[1];
+
+        pinchState.lastPinchDistance = Math.hypot(
+            touch1.clientX - touch2.clientX,
+            touch1.clientY - touch2.clientY
+        );
+        pinchState.lastPinchCenter = (touch1.clientX + touch2.clientX) / 2;
+        pinchState.animationFrameId = window.requestAnimationFrame(updatePinchZoom);
+    }
+
+    function updatePinchZoom() {
+        if(!pinchState.active) {
+            pinchState.animationFrameId = null;
+            return;
+        }
+
+        var zoomFactor = pinchState.initialPinchDistance / pinchState.lastPinchDistance;
+        var centerShift = (pinchState.lastPinchCenter - pinchState.initialPinchCenter) / pw;
+        var relayout = false;
+
+        for(var i = 0; i < xaxes.length; i++) {
+            var ax = xaxes[i];
+            if(ax.fixedrange || !pinchState.initialXRange[ax._id]) continue;
+
+            var rsOpts = ax.rangeslider;
+            if(rsOpts && rsOpts.visible && ax.rangebreaks) {
+                var v0 = rsOpts.d2p(pinchState.initialXRange[ax._id][0]);
+                var v1 = rsOpts.d2p(pinchState.initialXRange[ax._id][1]);
+                var pixelSpan = v1 - v0;
+                var newPixelSpan = pixelSpan * zoomFactor;
+                var pixelCenter = v0 + pixelSpan / 2;
+                var pixelShift = centerShift * pixelSpan;
+
+                var pixelMin = pixelCenter - newPixelSpan / 2 - pixelShift;
+                var pixelMax = pixelCenter + newPixelSpan / 2 - pixelShift;
+
+                rsOpts._pixelMin = Math.max(pixelMin, rsOpts.d2p(rsOpts._rl[0]));
+                rsOpts._pixelMax = Math.min(pixelMax, rsOpts.d2p(rsOpts._rl[1]));
+
+                var setDataRange = require('../../components/rangeslider/draw').setDataRange;
+                setDataRange(null, gd, ax, rsOpts, false);
+
+                console.log(`[Pinch] ${new Date(Date.now()).toISOString()} Move executing, range: ${rsOpts._pixelMin.toFixed(2)} - ${rsOpts._pixelMax.toFixed(2)}, zoom ${zoomFactor.toFixed(2)}`);
+            } else {
+                var initialRange = pinchState.initialXRange[ax._id];
+                var axRange = Lib.simpleMap(ax.range, ax.r2l);
+                var v0 = axRange[0] + (axRange[1] - axRange[0]) * 0.5;
+                function doZoom(v) { return ax.l2r(v0 + (v - v0) * zoomFactor); }
+                ax.range = axRange.map(doZoom);
+
+                relayout = true;
+                console.log(`[Pinch] ${new Date(Date.now()).toISOString()} Move executing, range: ${axRange[0]} - ${axRange[1]}`);
+            }
+
+            if(ax.limitRange) ax.limitRange();
+        }
+
+        if (relayout) {
+            ticksAndAnnotations();
+            updateSubplots([0, 0, pw, ph]);
+            gd.emit('plotly_relayouting', updates);
+
+            // then replot after a delay to make sure
+            // no more scrolling is coming
+            redrawTimer = setTimeout(function() {
+                if(!gd._fullLayout) return;
+                scrollViewBox = [0, 0, pw, ph];
+                dragTail();
+            }, REDRAWDELAY);
+        }
+
+    }
+
+    function handlePinchEnd() {
+        if(!pinchState.active) return;
+
+        if(pinchState.animationFrameId) {
+            window.cancelAnimationFrame(pinchState.animationFrameId);
+            pinchState.animationFrameId = null;
+        }
+
+        console.log(`[Pinch] ${new Date(Date.now()).toISOString()} handlePinchEnd`);
+
+        dragger._skipNextClick = true;
+        cleanupPinch();
+    }
+    
+    function handlePinchCancel() {
+        console.log(`[Pinch] ${new Date(Date.now()).toISOString()} handlePinchCancel`);
+        handlePinchEnd();
+    }
+
+    function cleanupPinch() {
+        pinchState.active = false;
+        pinchState.initialPinchDistance = null;
+        pinchState.lastPinchDistance = null;
+        pinchState.initialPinchCenter = null;
+        pinchState.lastPinchCenter = null;
+        pinchState.initialXRange = {};
+    }
+
+    if(editX) {
+        // Add touch event listeners once if editX is enabled
+        if(!dragger._touchHandlers) {
+            dragger.addEventListener('touchstart', handlePinchStart, supportsPassive ? {passive: true} : false);
+            dragger.addEventListener('touchmove', handlePinchMove, supportsPassive ? {passive: true} : false);
+            dragger.addEventListener('touchend', handlePinchEnd, supportsPassive ? {passive: true} : false);
+            dragger.addEventListener('touchcancel', handlePinchCancel, supportsPassive ? {passive: true} : false);
+
+            // Store handlers so they can be removed later
+            dragger._touchHandlers = {
+                start: handlePinchStart,
+                move: handlePinchMove,
+                end: handlePinchEnd,
+                cancel: handlePinchCancel
+            };
+        }
+    }
     return dragger;
 }
 
@@ -1479,7 +1660,7 @@ function attachWheelEventHandler(element, handler) {
         }
         element._onwheel = handler;
 
-        element.addEventListener(wheelEventName, handler, {passive: false});
+        element.addEventListener(wheelEventName, handler, {passive: true});
     }
 }
 

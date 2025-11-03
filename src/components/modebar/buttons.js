@@ -290,7 +290,7 @@ function handleCartesian(gd, ev) {
                     }
                 } else {
                     var rsOpts = ax.rangeslider;
-                    if (rsOpts && rsOpts.visible) {
+                    if (rsOpts && rsOpts.visible && ax.rangebreaks) {
                         // For rangeslider, work in pixel space for zoom
                         var v0 = rsOpts.d2p(ax.range[0]);
                         var v1 = rsOpts.d2p(ax.range[1]);
