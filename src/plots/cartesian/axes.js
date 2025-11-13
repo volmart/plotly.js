@@ -1238,6 +1238,8 @@ axes.calcTicks = function calcTicks(ax, opts) {
             fontSize = ax.tickfont ? ax.tickfont.size : 12;
         }
 
+        var labelSize = fontSize * 6;
+
         var prevL = NaN;
         for(i = tickVals.length - 1; i > -1; i--) {
             if(tickVals[i].drop) {
@@ -1245,13 +1247,20 @@ axes.calcTicks = function calcTicks(ax, opts) {
                 continue;
             }
 
+            var origValue = tickVals[i].value;
             tickVals[i].value = moveOutsideBreak(tickVals[i].value, ax);
 
-            // avoid overlaps
+            // remove tick that is moved out from hidden rangebreak because of it not nice position
+            if(tickVals[i].value !== origValue) {
+                tickVals.splice(i, 1);
+                continue;
+            }
+
+            // avoid overlaps that is caused not by shifted ticks, but caused by rangebreak between them
             var l = ax.c2p(tickVals[i].value);
             if(flip ?
-                (prevL > l - fontSize) :
-                (prevL < l + fontSize)
+                (prevL > l - labelSize) :
+                (prevL < l + labelSize)
             ) { // ensure one pixel minimum
                 tickVals.splice(axrev ? i + 1 : i, 1);
             } else {
