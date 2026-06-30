@@ -124,6 +124,11 @@
         false
       ]
     },
+    "displayNotifier": {
+      "description": "Determines whether or not notifier is displayed.",
+      "dflt": true,
+      "valType": "boolean"
+    },
     "doubleClick": {
       "description": "Sets the double click interaction mode. Has an effect only in cartesian plots. If *false*, double click is disable. If *reset*, double click resets the axis ranges to their initial values. If *autosize*, double click set the axis ranges to their autorange values. If *reset+autosize*, the odd double clicks resets the axis ranges to their initial values and even double clicks set the axis ranges to their autorange values.",
       "dflt": "reset+autosize",
@@ -274,7 +279,7 @@
       "valType": "number"
     },
     "plotlyServerURL": {
-      "description": "When set it determines base URL for the 'Edit in Chart Studio' `showEditInChartStudio`/`showSendToCloud` mode bar button and the showLink/sendData on-graph link. To enable sending your data to Chart Studio Cloud, you need to set both `plotlyServerURL` to 'https://chart-studio.plotly.com' and also set `showSendToCloud` to true.",
+      "description": "Sets the URL for the `sendChartToCloud` modebar button. When clicked, the button will send the chart data to this URL.",
       "dflt": "",
       "valType": "string"
     },
@@ -326,7 +331,7 @@
       "valType": "boolean"
     },
     "showEditInChartStudio": {
-      "description": "Same as `showSendToCloud`, but use a pencil icon instead of a floppy-disk. Note that if both `showSendToCloud` and `showEditInChartStudio` are turned, only `showEditInChartStudio` will be honored.",
+      "description": "Deprecated. Use `showSendToCloud` instead.",
       "dflt": false,
       "valType": "boolean"
     },
@@ -336,7 +341,7 @@
       "valType": "boolean"
     },
     "showSendToCloud": {
-      "description": "Should we include a ModeBar button, labeled \"Edit in Chart Studio\", that sends this chart to chart-studio.plotly.com (formerly plot.ly) or another plotly server as specified by `plotlyServerURL` for editing, export, etc? Prior to version 1.43.0 this button was included by default, now it is opt-in using this flag. Note that this button can (depending on `plotlyServerURL` being set) send your data to an external server. However that server does not persist your data until you arrive at the Chart Studio and explicitly click \"Save\".",
+      "description": "Should we include a modebar button that sends this chart to a URL specified by `plotlyServerURL`, for sharing the chart with others? Note that this button will (after a confirmation step) send chart data to an external server.",
       "dflt": false,
       "valType": "boolean"
     },
@@ -1165,6 +1170,12 @@
           "thai",
           "ummalqura"
         ]
+      },
+      "clickanywhere": {
+        "description": "If true, `plotly_click` events will fire for any click position within the plot area, not just over traces. When clicking where there is no trace data, the event will have an empty `points` array but will include `xvals` and `yvals` with click coordinates in data space.",
+        "dflt": false,
+        "editType": "none",
+        "valType": "boolean"
       },
       "clickmode": {
         "description": "Determines the mode of single click interactions. *event* is the default value and emits the `plotly_click` event. In addition this mode emits the `plotly_selected` event in drag modes *lasso* and *select*, but with no event data attached (kept for compatibility reasons). The *select* flag enables selecting single data points via click. This mode also supports persistent selections, meaning that pressing Shift while clicking, adds to / subtracts from an existing selection. *select* with `hovermode`: *x* can be confusing, consider explicitly setting `hovermode`: *closest* when using this feature. Selection events are sent accordingly as long as *event* flag is set as well. When the *event* flag is missing, `plotly_click` and `plotly_selected` events are not fired.",
@@ -2807,6 +2818,12 @@
         "editType": "plot",
         "valType": "boolean"
       },
+      "hoveranywhere": {
+        "description": "If true, `plotly_hover` events will fire for any cursor position within the plot area, not just over traces. When the cursor is not over a trace, the event will have an empty `points` array but will include `xvals` and `yvals` with cursor coordinates in data space.",
+        "dflt": false,
+        "editType": "none",
+        "valType": "boolean"
+      },
       "hoverdistance": {
         "description": "Sets the default distance (in pixels) to look for data to add hover labels (-1 means no cutoff, 0 means no looking for data). This is only a real distance for hovering on point-like objects, like scatter points. For area-like objects (bars, scatter fills, etc) hovering is on inside the area and off outside, but these objects will not supersede hover on point-like objects in case of conflict.",
         "dflt": 20,
@@ -3044,6 +3061,17 @@
           false,
           "x unified",
           "y unified"
+        ]
+      },
+      "hoversort": {
+        "description": "Determines the order of items shown in unified hover labels. If *trace*, items are sorted by trace index. If *value descending*, items are sorted by value from largest to smallest. If *value ascending*, items are sorted by value from smallest to largest. Only applies when `hovermode` is *x unified* or *y unified*.",
+        "dflt": "trace",
+        "editType": "none",
+        "valType": "enumerated",
+        "values": [
+          "trace",
+          "value descending",
+          "value ascending"
         ]
       },
       "hoversubplots": {
@@ -4611,7 +4639,7 @@
         },
         "remove": {
           "arrayOk": true,
-          "description": "Determines which predefined modebar buttons to remove. Similar to `config.modeBarButtonsToRemove` option. This may include *autoScale2d*, *autoscale*, *editInChartStudio*, *editinchartstudio*, *hoverCompareCartesian*, *hovercompare*, *lasso*, *lasso2d*, *orbitRotation*, *orbitrotation*, *pan*, *pan2d*, *pan3d*, *reset*, *resetCameraDefault3d*, *resetCameraLastSave3d*, *resetGeo*, *resetSankeyGroup*, *resetScale2d*, *resetViewMap*, *resetViewMapbox*, *resetViews*, *resetcameradefault*, *resetcameralastsave*, *resetsankeygroup*, *resetscale*, *resetview*, *resetviews*, *select*, *select2d*, *sendDataToCloud*, *senddatatocloud*, *tableRotation*, *tablerotation*, *toImage*, *toggleHover*, *toggleSpikelines*, *togglehover*, *togglespikelines*, *toimage*, *zoom*, *zoom2d*, *zoom3d*, *zoomIn2d*, *zoomInGeo*, *zoomInMap*, *zoomInMapbox*, *zoomOut2d*, *zoomOutGeo*, *zoomOutMap*, *zoomOutMapbox*, *zoomin*, *zoomout*.",
+          "description": "Determines which predefined modebar buttons to remove. Similar to `config.modeBarButtonsToRemove` option. This may include *autoScale2d*, *autoscale*, *hoverCompareCartesian*, *hovercompare*, *lasso*, *lasso2d*, *orbitRotation*, *orbitrotation*, *pan*, *pan2d*, *pan3d*, *reset*, *resetCameraDefault3d*, *resetCameraLastSave3d*, *resetGeo*, *resetSankeyGroup*, *resetScale2d*, *resetViewMap*, *resetViewMapbox*, *resetViews*, *resetcameradefault*, *resetcameralastsave*, *resetsankeygroup*, *resetscale*, *resetview*, *resetviews*, *select*, *select2d*, *sendChartToCloud*, *sendcharttocloud*, *tableRotation*, *tablerotation*, *toImage*, *toggleHover*, *toggleSpikelines*, *togglehover*, *togglespikelines*, *toimage*, *zoom*, *zoom2d*, *zoom3d*, *zoomIn2d*, *zoomInGeo*, *zoomInMap*, *zoomInMapbox*, *zoomOut2d*, *zoomOutGeo*, *zoomOutMap*, *zoomOutMapbox*, *zoomin*, *zoomout*.",
           "dflt": "",
           "editType": "modebar",
           "valType": "string"
@@ -25447,7 +25475,7 @@
           "valType": "number"
         },
         "locationmode": {
-          "description": "The library used by the *country names* `locationmode` option is changing in an upcoming version. Country names in existing plots may not work in the new version. Determines the set of locations used to match entries in `locations` to regions on the map. Values *ISO-3*, *USA-states*, *country names* correspond to features on the base map and value *geojson-id* corresponds to features from a custom GeoJSON linked to the `geojson` attribute.",
+          "description": "The library used by the *country names* `locationmode` option is changing in an upcoming version. Country names in existing plots may not work in the new version. Determines the set of locations used to match entries in `locations` to regions on the map. Values *ISO-3*, *USA-states*, *country names* correspond to features on the base map and value *geojson-id* corresponds to features from a custom GeoJSON linked to the `geojson` attribute. *USA-states* accepts both two-letter abbreviations (e.g. *CA*) and full state names (e.g. *California*).",
           "dflt": "ISO-3",
           "editType": "calc",
           "valType": "enumerated",
@@ -56758,10 +56786,16 @@
           }
         },
         "legendrank": {
-          "description": "Sets the legend rank for this trace. Items and groups with smaller ranks are presented on top/left side while with *reversed* `legend.traceorder` they are on bottom/right side. The default legendrank is 1000, so that you can use ranks less than 1000 to place certain items before all unranked items, and ranks greater than 1000 to go after all unranked items. When having unranked or equal rank items shapes would be displayed after traces i.e. according to their order in data and layout.",
+          "arrayOk": true,
+          "description": "Sets the legend rank for this pie. If passed as an array, this will set the legend rank of the individual pie slices. Items and groups with smaller ranks are presented on top/left side while with *reversed* `legend.traceorder` they are on bottom/right side. The default legendrank is 1000, so that you can use ranks less than 1000 to place certain items before all unranked items, and ranks greater than 1000 to go after all unranked items. When having unranked or equal rank items shapes would be displayed after traces i.e. according to their order in data and layout.",
           "dflt": 1000,
           "editType": "style",
           "valType": "number"
+        },
+        "legendranksrc": {
+          "description": "Sets the source reference on Chart Studio Cloud for `legendrank`.",
+          "editType": "none",
+          "valType": "string"
         },
         "legendsrc": {
           "description": "Sets the source reference on Chart Studio Cloud for `legend`.",
@@ -67366,7 +67400,7 @@
           }
         },
         "locationmode": {
-          "description": "The library used by the *country names* `locationmode` option is changing in an upcoming version. Country names in existing plots may not work in the new version. Determines the set of locations used to match entries in `locations` to regions on the map. Values *ISO-3*, *USA-states*, *country names* correspond to features on the base map and value *geojson-id* corresponds to features from a custom GeoJSON linked to the `geojson` attribute.",
+          "description": "The library used by the *country names* `locationmode` option is changing in an upcoming version. Country names in existing plots may not work in the new version. Determines the set of locations used to match entries in `locations` to regions on the map. Values *ISO-3*, *USA-states*, *country names* correspond to features on the base map and value *geojson-id* corresponds to features from a custom GeoJSON linked to the `geojson` attribute. *USA-states* accepts both two-letter abbreviations (e.g. *CA*) and full state names (e.g. *California*).",
           "dflt": "ISO-3",
           "editType": "calc",
           "valType": "enumerated",
